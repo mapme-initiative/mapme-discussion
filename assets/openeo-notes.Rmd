@@ -24,25 +24,25 @@ library(tibble)
 # openEO 
 - current release version: 1.0.1
 - consortium members: 
-- TU Wien
-- WWU Münster
-- Wageningen University
-- Mundialis
-- Google Earth Engine
-- and [others](https://openeo.org/about.html#partners)...
+  - TU Wien
+  - WWU Münster
+  - Wageningen University
+  - Mundialis
+  - Google Earth Engine
+  - and [others](https://openeo.org/about.html#partners)...
 - proposes a "GDAL for the cloud"
 - currently supports clients for:
-- [Python](https://github.com/Open-EO/openeo-python-client)
-- [JavaScript](https://github.com/Open-EO/openeo-js-client)
-- [R](https://github.com/Open-EO/openeo-r-client)
-- [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
+  - [Python](https://github.com/Open-EO/openeo-python-client)
+  - [JavaScript](https://github.com/Open-EO/openeo-js-client)
+  - [R](https://github.com/Open-EO/openeo-r-client)
+  - [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
 
 ---
 
-# What is openEO?
+# Current EO cloud structure
 
 Currently the EO cloud infrastructure has many different back-ends.
-To use each of them a user has to learn a dedicated APIs.
+To use them a user has to learn a dedicated API for each of them.
 ![Current EO cloud infrastructure](https://openeo.org/images/api.png)
 
 ---
@@ -50,7 +50,7 @@ To use each of them a user has to learn a dedicated APIs.
 # How does openEO help?
 
 By providing a common API based on the idea of EO datacubes, users can changes
-frome one backe-end to another and expect to get similar results with little 
+from one back-end to another and expect to get similar results with little 
 effort in changing the source code. 
 
 ![Current EO cloud infrastructure](https://openeo.org/images/api2.png)
@@ -76,6 +76,7 @@ class: inverse, middle, center
 
 The R client currently is not on CRAN. That is why it should be installed from
 github via `devtools` or `remotes`.
+
 ```{r eval = F}
 devtools::install_github(repo="Open-EO/openeo-r-client")
 library(openeo)
