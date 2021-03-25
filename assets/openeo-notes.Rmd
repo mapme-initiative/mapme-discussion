@@ -8,6 +8,7 @@ output:
   xaringan::moon_reader:
     lib_dir: libs
     nature:
+      ratio: '16:9'
       highlightStyle: github
       highlightLines: true
       countIncrementalSlides: false
@@ -25,18 +26,18 @@ library(stars)
 # openEO 
 - current release version: 1.0.1
 - consortium members: 
-- TU Wien
-- WWU Münster
-- Wageningen University
-- Mundialis
-- Google Earth Engine
-- and [others](https://openeo.org/about.html#partners)...
+  - TU Wien
+  - WWU Münster
+  - Wageningen University
+  - Mundialis
+  - Google Earth Engine
+  - and [others](https://openeo.org/about.html#partners)...
 - proposes a "GDAL for the cloud"
 - currently supports clients for:
-- [Python](https://github.com/Open-EO/openeo-python-client)
-- [JavaScript](https://github.com/Open-EO/openeo-js-client)
-- [R](https://github.com/Open-EO/openeo-r-client)
-- [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
+  - [Python](https://github.com/Open-EO/openeo-python-client)
+  - [JavaScript](https://github.com/Open-EO/openeo-js-client)
+  - [R](https://github.com/Open-EO/openeo-r-client)
+  - [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
 
 ---
 
@@ -150,7 +151,7 @@ available_collections = readRDS("openeo-collections.rds")
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$creodias, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 6), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -160,7 +161,7 @@ DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$vito, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 6), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -170,7 +171,7 @@ DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$eodc, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 6), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -180,7 +181,7 @@ DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$gee, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 4), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -190,7 +191,7 @@ DT::datatable(info, options = list(pageLength = 4), rownames = F)
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$mudialis, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 4), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -200,7 +201,7 @@ DT::datatable(info, options = list(pageLength = 4), rownames = F)
 ```{r echo=F}
 info = do.call(rbind, lapply(available_collections$sentinelhub, function(x){col_info(x)}))
 names(info) = c("Name", "Spatial Extent", "Starting from")
-DT::datatable(info, options = list(pageLength = 6), rownames = F)
+DT::datatable(info, options = list(pageLength = 4), rownames = F, fillContainer = FALSE, class = "compact")
 ```
 
 ---
@@ -341,7 +342,7 @@ if(!file.exists(tiffile)){
   padding: 20px 80px 20px 80px;
 }
 .tiny .remark-code { /*Change made here*/
-  font-size: 40% !important;
+  font-size: 50% !important;
 }
 ```
 
