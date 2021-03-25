@@ -233,7 +233,8 @@ p = processes()
 
 ---
 
-# Band arithmetics and temporal reduction
+## Loading a collection
+
 
 ```{r }
 s2 = list_collections()$`COPERNICUS/S2`
@@ -242,7 +243,15 @@ s2cube = p$load_collection(id = s2,
                            spatial_extent = list(west=-4.84079,south=13.95679,east=-4.5009,north=14.1892),
                            temporal_extent = c("2018-06-01","2018-06-30"),
                            bands = c("B4","B8", "B2"))
+```
 
+
+
+---
+
+## Band arithmetics
+
+```{r}
 # define a dimension reduction function to calculate EVI per pixel
 spectral_reduce = p$reduce_dimension(data = s2cube, 
                                      dimension = "bands",
@@ -253,18 +262,25 @@ spectral_reduce = p$reduce_dimension(data = s2cube,
                                        (2.5 * (B08 - B04)) / sum(B08, 6 * B04, -7.5 * B02, 1)
                                      })
 
+```
+
+
+---
+
+##  Temporal reduction
+
+```{r}
 # define a dimension reduction function to calculate mean in June
 temporal_reduce = p$reduce_dimension(data=spectral_reduce,
                                      dimension = "t", 
                                      reducer = function(data,context){
                                        p$mean(data)
                                      })
-
 ```
 
 ---
 
-# Generating Output
+## Generating Output
 
 ```{r eval=F}
 # chose a proper output format
@@ -317,7 +333,7 @@ if(!file.exists(tiffile)){
 
 ---
 
-# Generating Output
+## Generating Output
 
 ```{css, echo = FALSE}
 .remark-slide-content {
