@@ -19,6 +19,7 @@ library(openeo)
 library(dplyr)
 library(magrittr)
 library(tibble)
+library(stars)
 ```
 
 # openEO 
@@ -206,7 +207,9 @@ DT::datatable(info, options = list(pageLength = 6), rownames = F)
 
 # How does a openEO workflow look like?
 
-```{r }
+## User Identification
+
+```{r eval=F}
 # connect and query a dataset
 user = "group7"
 pwd = "test123"
@@ -215,14 +218,25 @@ login(login_type="basic",
       user = user,
       password = pwd)
 p = processes()
-s2 = list_collections()$`COPERNICUS/S2`
-(dims = dimensions(s2))
+```
 
+```{r include=F}
+# connect and query a dataset
+user = "group7"
+pwd = "test123"
+gee = connect(host = "https://earthengine.openeo.org/")
+login(login_type="basic",
+      user = user,
+      password = pwd)
+p = processes()
 ```
 
 ---
 
+# Band arithmetics and temporal reduction
+
 ```{r }
+s2 = list_collections()$`COPERNICUS/S2`
 # create a cube for a space-time location of interest
 s2cube = p$load_collection(id = s2,
                            spatial_extent = list(west=-4.84079,south=13.95679,east=-4.5009,north=14.1892),
@@ -250,9 +264,9 @@ temporal_reduce = p$reduce_dimension(data=spectral_reduce,
 
 ---
 
-# Output
+# Generating Output
 
-```{r }
+```{r eval=F}
 # chose a proper output format
 result = p$save_result(data=temporal_reduce,format="GTIFF-ZIP")
 # create a job on the remote server
@@ -275,11 +289,58 @@ while(query){
 }
 ```
 
+```{r include=F}
+tiffile = "download.#.tif"
+if(!file.exists(tiffile)){
+  # chose a proper output format
+  result = p$save_result(data=temporal_reduce,format="GTIFF-ZIP")
+  # create a job on the remote server
+  job_id = create_job(graph=result, title = "Average EVI Mopti, Mali")
+  # start the job
+  start_job(job = job_id)
+  
+  # put R to sleep if file is not ready for download
+  query = TRUE
+  while(query){
+    out = download_results(job=job_id,folder=".")
+    if(length(out) == 0){
+      Sys.sleep(15)
+    } else {
+      unzip(out[[1]])
+      tiffile = list.files(".", ".tif$")
+      file.remove(out[[1]])
+      query = FALSE
+    }
+  }
+}
+```
+
 ---
 
-```{r}
-library(stars)
+# Generating Output
+
+```{css, echo = FALSE}
+.remark-slide-content {
+  font-size: 28px;
+  padding: 20px 80px 20px 80px;
+}
+.tiny .remark-code { /*Change made here*/
+  font-size: 40% !important;
+}
+```
+
+.pull-left[
+.tiny[
+```{r echo=F}
+evi = read_stars("download.#.tif")
+evi
+```
+]
+]
+
+.pull-right[
+```{r echo=F}
 evi = read_stars(tiffile)
 plot(evi)
 ```
-
+]
