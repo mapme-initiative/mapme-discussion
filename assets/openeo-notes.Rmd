@@ -1,0 +1,262 @@
+---
+title: "Some notes on the current state of openEO product availability"
+subtitle: ""
+author: "Darius Görgen"
+institute: ""
+date: "2021/03/26"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+library(openeo)
+library(dplyr)
+library(magrittr)
+library(tibble)
+```
+
+# openEO 
+- current release version: 1.0.1
+- consortium members: 
+- TU Wien
+- WWU Münster
+- Wageningen University
+- Mundialis
+- Google Earth Engine
+- and [others](https://openeo.org/about.html#partners)...
+- proposes a "GDAL for the cloud"
+- currently supports clients for:
+- [Python](https://github.com/Open-EO/openeo-python-client)
+- [JavaScript](https://github.com/Open-EO/openeo-js-client)
+- [R](https://github.com/Open-EO/openeo-r-client)
+- [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
+
+---
+
+# What is openEO?
+
+Currently the EO cloud infrastructure has many different back-ends.
+To use each of them a user has to learn a dedicated APIs.
+![Current EO cloud infrastructure](https://openeo.org/images/api.png)
+
+---
+
+# How does openEO help?
+
+By providing a common API based on the idea of EO datacubes, users can changes
+frome one backe-end to another and expect to get similar results with little 
+effort in changing the source code. 
+
+![Current EO cloud infrastructure](https://openeo.org/images/api2.png)
+
+---
+
+# Possible benefits for MAPME
+
+- no provider lock-in for our coding solutions
+- intensive calculations can entirely be run on remote servers
+- developed code should easily run on other servers
+- in principle UDFs are supported - depends on the server implementation
+- ad-hoc analysis of dense-time series for random locations are feasible at low costs
+
+---
+class: inverse, middle, center
+
+# Exploring openEO
+
+---
+
+# Installation
+
+The R client currently is not on CRAN. That is why it should be installed from
+github via `devtools` or `remotes`.
+```{r eval = F}
+devtools::install_github(repo="Open-EO/openeo-r-client")
+library(openeo)
+```
+
+--
+
+After installation the client needs to be connected to a server possibly with 
+user authentication included. For basic exploration of the available data sets
+no authentication is required.
+
+```{r eval = F}
+vito_url = "https://openeo.vito.be"
+con = connect(vito_url)
+```
+
+---
+
+# Providers
+
+Currently, 7 providers expose their data with openEO.
+
+```{r}
+creodias_url = "https://openeo.creo.vito.be" # production ready
+vito_url = "https://openeo.vito.be" # production ready
+eodc_url = "https://openeo.eodc.eu" 
+eurac_url = "https://openeo.eurac.edu" 
+gee_url = "https://earthengine.openeo.org"
+mundialis_url = "https://openeo.mundialis.de/api" 
+sentinelhub_url = "https://e3oind87n9.execute-api.eu-central-1.amazonaws.com/production"
+urls = c(creodias = creodias_url, 
+         vito = vito_url, 
+         eodc = eodc_url, 
+         eurac = eurac_url, 
+         gee = gee_url, 
+         mundialis = mundialis_url, 
+         sentinelhub = sentinelhub_url)
+```
+
+---
+
+# Providers
+
+We can query the servers for the available data sets.
+
+```{r eval = F}
+available_collections = lapply(urls, function(url) connect(url) %>% list_collections())
+names(available_collections) = names(urls)
+(as_tibble(lapply(available_collections, length)))
+```
+
+```{r echo=F}
+col_info <- function(coll){
+  title = coll$id
+  spext = coll$extent$spatial
+  tpext = coll$extent$temporal[[1]][[1]][1]
+  tibble(
+         title = title,
+         spext = paste(spext, collapse  = " "),
+         tpext = tpext)
+}
+available_collections = readRDS("openeo-collections.rds")
+(as_tibble(lapply(available_collections, length)))
+```
+
+---
+
+# CREODIAS
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$creodias, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 6), rownames = F)
+```
+
+---
+
+# VITO
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$vito, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 6), rownames = F)
+```
+---
+
+# EODC
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$eodc, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 6), rownames = F)
+```
+---
+
+# Google Earth Engine
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$gee, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 4), rownames = F)
+```
+---
+
+# Mundialis
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$mudialis, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 4), rownames = F)
+```
+---
+
+# Sentinel Hub
+
+```{r echo=F}
+info = do.call(rbind, lapply(available_collections$sentinelhub, function(x){col_info(x)}))
+names(info) = c("Name", "Spatial Extent", "Starting from")
+DT::datatable(info, options = list(pageLength = 6), rownames = F)
+```
+---
+
+# How does a openEO workflow look like?
+
+```{r eval = F}
+# connect and query a dataset
+user = "group7"
+pwd = "test123"
+gee = connect(host = "https://earthengine.openeo.org/",
+              version="1.0.0",
+              user = user,
+              password = pwd,
+              login_type = "basic")
+p = processes()
+s2 = list_collections()$`COPERNICUS/S2`
+(dims = dimensions(s2))
+
+```
+
+---
+```{r eval = F}
+# create a cube for a space-time location of interest
+s2cube = p$load_collection(id = s2,
+                          spatial_extent = list(west=-4.84079,south=13.95679,east=-4.5009,north=14.1892),
+                          temporal_extent = c("2018-06-01","2018-06-30"),
+                          bands = c("B4","B8", "B2"))
+
+# define a dimension reduction function to calculate EVI per pixel
+spectral_reduce = p$reduce_dimension(data = data, 
+                                     dimension = "bands",
+                                     reducer = function(data,context) {
+  B08 = data[1]
+  B04 = data[2]
+  B02 = data[3]
+  (2.5 * (B08 - B04)) / sum(B08, 6 * B04, -7.5 * B02, 1)
+})
+
+# define a dimension reduction function to calculate mean in June
+temporal_reduce = p$reduce_dimension(data=spectral_reduce,
+                                     dimension = "t", 
+                                     reducer = function(data,context){
+  p$mean(data)
+})
+
+```
+---
+
+# Output
+
+```{r eval = F}
+# apply a transformation to visualize data as png
+apply_linear_transform = p$apply(data=temporal_reduce,
+                                 process = function(value,...) {
+  p$linear_scale_range(x = value, 
+                           inputMin = -1, 
+                           inputMax = 1, 
+                           outputMin = 0, 
+                           outputMax = 255)
+})
+result = p$save_result(data=apply_linear_transform,format="PNG")
+job_id = create_job(graph=result, title = "Average EVI Mopti, Mali")
+start_job(job = job_id)
+download_results(job=job_id,folder=".")
+```
