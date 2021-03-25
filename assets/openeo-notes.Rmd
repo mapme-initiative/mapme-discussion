@@ -24,18 +24,18 @@ library(tibble)
 # openEO 
 - current release version: 1.0.1
 - consortium members: 
-  - TU Wien
-  - WWU Münster
-  - Wageningen University
-  - Mundialis
-  - Google Earth Engine
-  - and [others](https://openeo.org/about.html#partners)...
+- TU Wien
+- WWU Münster
+- Wageningen University
+- Mundialis
+- Google Earth Engine
+- and [others](https://openeo.org/about.html#partners)...
 - proposes a "GDAL for the cloud"
 - currently supports clients for:
-  - [Python](https://github.com/Open-EO/openeo-python-client)
-  - [JavaScript](https://github.com/Open-EO/openeo-js-client)
-  - [R](https://github.com/Open-EO/openeo-r-client)
-  - [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
+- [Python](https://github.com/Open-EO/openeo-python-client)
+- [JavaScript](https://github.com/Open-EO/openeo-js-client)
+- [R](https://github.com/Open-EO/openeo-r-client)
+- [QGIS](https://github.com/Open-EO/openeo-qgis-plugin)
 
 ---
 
@@ -134,9 +134,9 @@ col_info <- function(coll){
   spext = coll$extent$spatial
   tpext = coll$extent$temporal[[1]][[1]][1]
   tibble(
-         title = title,
-         spext = paste(spext, collapse  = " "),
-         tpext = tpext)
+    title = title,
+    spext = paste(spext, collapse  = " "),
+    tpext = tpext)
 }
 available_collections = readRDS("openeo-collections.rds")
 (as_tibble(lapply(available_collections, length)))
@@ -161,6 +161,7 @@ info = do.call(rbind, lapply(available_collections$vito, function(x){col_info(x)
 names(info) = c("Name", "Spatial Extent", "Starting from")
 DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```
+
 ---
 
 # EODC
@@ -170,6 +171,7 @@ info = do.call(rbind, lapply(available_collections$eodc, function(x){col_info(x)
 names(info) = c("Name", "Spatial Extent", "Starting from")
 DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```
+
 ---
 
 # Google Earth Engine
@@ -179,6 +181,7 @@ info = do.call(rbind, lapply(available_collections$gee, function(x){col_info(x)}
 names(info) = c("Name", "Spatial Extent", "Starting from")
 DT::datatable(info, options = list(pageLength = 4), rownames = F)
 ```
+
 ---
 
 # Mundialis
@@ -188,6 +191,7 @@ info = do.call(rbind, lapply(available_collections$mudialis, function(x){col_inf
 names(info) = c("Name", "Spatial Extent", "Starting from")
 DT::datatable(info, options = list(pageLength = 4), rownames = F)
 ```
+
 ---
 
 # Sentinel Hub
@@ -197,19 +201,19 @@ info = do.call(rbind, lapply(available_collections$sentinelhub, function(x){col_
 names(info) = c("Name", "Spatial Extent", "Starting from")
 DT::datatable(info, options = list(pageLength = 6), rownames = F)
 ```
+
 ---
 
 # How does a openEO workflow look like?
 
-```{r eval = F}
+```{r }
 # connect and query a dataset
 user = "group7"
 pwd = "test123"
-gee = connect(host = "https://earthengine.openeo.org/",
-              version="1.0.0",
-              user = user,
-              password = pwd,
-              login_type = "basic")
+gee = connect(host = "https://earthengine.openeo.org/")
+login(login_type="basic",
+      user = user,
+      password = pwd)
 p = processes()
 s2 = list_collections()$`COPERNICUS/S2`
 (dims = dimensions(s2))
@@ -217,47 +221,65 @@ s2 = list_collections()$`COPERNICUS/S2`
 ```
 
 ---
-```{r eval = F}
+
+```{r }
 # create a cube for a space-time location of interest
 s2cube = p$load_collection(id = s2,
-                          spatial_extent = list(west=-4.84079,south=13.95679,east=-4.5009,north=14.1892),
-                          temporal_extent = c("2018-06-01","2018-06-30"),
-                          bands = c("B4","B8", "B2"))
+                           spatial_extent = list(west=-4.84079,south=13.95679,east=-4.5009,north=14.1892),
+                           temporal_extent = c("2018-06-01","2018-06-30"),
+                           bands = c("B4","B8", "B2"))
 
 # define a dimension reduction function to calculate EVI per pixel
-spectral_reduce = p$reduce_dimension(data = data, 
+spectral_reduce = p$reduce_dimension(data = s2cube, 
                                      dimension = "bands",
                                      reducer = function(data,context) {
-  B08 = data[1]
-  B04 = data[2]
-  B02 = data[3]
-  (2.5 * (B08 - B04)) / sum(B08, 6 * B04, -7.5 * B02, 1)
-})
+                                       B08 = data[1]
+                                       B04 = data[2]
+                                       B02 = data[3]
+                                       (2.5 * (B08 - B04)) / sum(B08, 6 * B04, -7.5 * B02, 1)
+                                     })
 
 # define a dimension reduction function to calculate mean in June
 temporal_reduce = p$reduce_dimension(data=spectral_reduce,
                                      dimension = "t", 
                                      reducer = function(data,context){
-  p$mean(data)
-})
+                                       p$mean(data)
+                                     })
 
 ```
+
 ---
 
 # Output
 
-```{r eval = F}
-# apply a transformation to visualize data as png
-apply_linear_transform = p$apply(data=temporal_reduce,
-                                 process = function(value,...) {
-  p$linear_scale_range(x = value, 
-                           inputMin = -1, 
-                           inputMax = 1, 
-                           outputMin = 0, 
-                           outputMax = 255)
-})
-result = p$save_result(data=apply_linear_transform,format="PNG")
+```{r }
+# chose a proper output format
+result = p$save_result(data=temporal_reduce,format="GTIFF-ZIP")
+# create a job on the remote server
 job_id = create_job(graph=result, title = "Average EVI Mopti, Mali")
+# start the job
 start_job(job = job_id)
-download_results(job=job_id,folder=".")
+
+# put R to sleep if file is not ready for download
+query = TRUE
+while(query){
+  out = download_results(job=job_id,folder=".")
+  if(length(out) == 0){
+    Sys.sleep(15)
+  } else {
+    unzip(out[[1]])
+    tiffile = list.files(".", ".tif$")
+    file.remove(out[[1]])
+    query = FALSE
+  }
+}
 ```
+
+---
+
+```{r}
+library(stars)
+evi = read_stars(tiffile)
+plot(evi)
+```
+
