@@ -1,0 +1,501 @@
+---
+title: "S2 Download Comparison"
+author: "Darius Görgen"
+date: "4/5/2021"
+output: 
+  html_notebook:
+    theme: flatly
+    toc: true
+    toc_depth: 1
+    toc_float: true
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This R Markdown is meant to compare different ways to download S2 data for 
+a given AOI. We will use different sources such as a Google Cloud Bucket and AWS
+and different methodologies to query the endpoints for a spatiotemporal extent.
+For reasons of comparison we will query the AOI found in the `mapme.vegetation`
+package located in Pakistan for all endpoints.
+The task is simple: Calculate a NDVI composite for January, 2020 with clouds removed.
+
+```{r, warning=FALSE, message=F}
+# loading necessary libraries
+library(sf)
+library(terra)
+library(rstac)
+library(DBI)
+library(bigrquery)
+library(gdalcubes) # current github version, see https://github.com/appelmar/gdalcubes_R
+library(openeo) # from https://github.com/Open-EO/openeo-r-client
+library(getSpatialData) # from https://github.com/16EAGLE/getSpatialData
+library(mapme.vegetation) # from https://github.com/mapme-initiative/mapme.vegetation
+```
+
+Let's prepare the AOI.
+
+```{r}
+aoi = st_read(system.file("extdata", "testregion.gpkg", package = "mapme.vegetation"))
+aoi = st_zm(aoi, drop = TRUE) # drop z dimension
+aoi = st_as_sfc(st_bbox(aoi))
+mapview::mapview(aoi)
+```
+
+
+Let's create a directory structure for our downloads.
+
+```{r}
+paths = c("download", "download/mapme", "download/bigquery", "download/aws", "download/gsd", "download/openeo")
+for(path in paths) dir.create(path, showWarnings = F)
+```
+
+# MAPME
+
+It is important to download some external software dependencies before the 
+current approach works. Check [here](https://cloud.google.com/storage/docs/gsutil_install)
+for installation instructions of gsutil.
+
+
+```{bash, eval = F}
+sudo apt install -y google-cloud-sdk gsutil
+```
+
+Further, a project used for billing needs to be initiated with a Google account.
+The following command should lead through this process.
+
+```{bash, eval = F}
+gcloud init
+```
+
+Once this is done, we can use the existing MAPME code base to query the Google bucket.
+When running this command for the first time, the tile index is downloaded and
+transformed to a SQL data base for spatiotemporal queries. This consumes about
+5 GB of space on the local disk but makes querying later on way faster. 
+Later we will see how to use BigQuery so we do not have to download the tile index.
+We need to reset the timeout options because the zipped file is about 2 GB and
+starting from R 4.0 the timeout is set to 60 seconds which can cause troubles 
+depending on the internet connection.
+
+```{r, message=F, warning=FALSE}
+options(timeout = max(300, getOption("timeout")))
+downloadS2(aoi = aoi,
+           time_window = c("2020-01-01", "2020-01-31"),
+           time_period = "full",
+           rootdir = "download/mapme/",
+           extent_name = "test",
+           use_db = TRUE,
+           force_update = F,
+           query_only = F)
+```
+
+The matching tiles are now downloaded. Note that we downloaded S2 L1C data from
+Google, representing Top of the Atmosphere reflectance (TOA) and only a simple 
+cloud mask is available. We can proceed using MAPME functionality to calculate 
+the median NDVI composite for all non-cloudy pixels. The cloud masks as already
+been transformed to a GTiff and the below function takes care to exclude cloudy
+pixels from the analysis.
+
+```{r}
+
+files = list.files("download/mapme", pattern = ".jp2|.tif", recursive = T, full.names = TRUE)
+rasterfiles = calcIndex(files,
+                        aoi = aoi, 
+                        epsg = "EPSG:32643", 
+                        dx = 20, 
+                        dy = 20, 
+                        dt = "P1M", 
+                        aggregation = "mean", 
+                        resampling = "bilinear", 
+                        tmpagg = FALSE,
+                        timeframe = "complete", 
+                        index = "NDVI", 
+                        label = "mapme", 
+                        outdir = "download/mapme", 
+                        threads = 2)
+
+```
+
+# BigQuery
+
+In this example we basically download the same data except that we use BigQuery
+to let the server process our spatitemporal query. 
+For this to work the same prerequistes hold as for the MAPME approach namely
+a valid Google Account, a project that can be used for billing and that gsutil
+is installed. We will use the `bigrquery` package together with the `DBI` backend
+to send a SQL query to the server.
+
+```{r}
+
+billing = "sen2download"
+
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = "bigquery-public-data",
+  dataset = "cloud_storage_geo_index",
+  billing = billing
+)
+
+bbox = st_bbox(aoi)
+s_lat = as.numeric(bbox[2])
+n_lat = as.numeric(bbox[4])
+w_lon = as.numeric(bbox[1])
+e_lon = as.numeric(bbox[3])
+after = "2020-01-01"
+before = "2020-01-31"
+
+sql = paste0("SELECT * FROM `bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`",
+             " WHERE north_lat >= ", s_lat,
+             " AND south_lat <= ", n_lat,
+             " AND west_lon <= ", e_lon,
+             " AND east_lon >= ", w_lon,
+             " AND DATE(sensing_time) >= '", after,"'",
+             "AND DATE(sensing_time) <= '", before, "'")
+(results = dbGetQuery(con, sql))
+
+```
+
+We will use a similar code that is used within the MAPME package which will automatically
+create download the data via `gsutil` and create a cloudmask GTiff.
+
+
+```{r}
+
+create_cloudmask = TRUE
+outdir = "download/bigquery/"
+names = basename(results$base_url)
+for(i in 1:nrow(results)){
+  if(file.exists(file.path(outdir, names[i]))){
+    next
+  } else {
+    
+    # prepare command with gsutil
+    command = paste0("gsutil -m cp -r ", results$base_url[i], " ", outdir)
+    dir.create(outdir, showWarnings = F, recursive = T)
+    # try to download and save output in s
+    s = try(suppressWarnings(system(command, intern = T, ignore.stderr = T)))
+    
+    # some files are not present in GoogleCloud Bucket, thus the download fails
+    # this is only the case for very few files
+    if(!is.null(attributes(s)$status)){
+      message(paste0("\n File ", names[i], " could not be downloaded."))
+      
+    } else {
+      # creating some empty folders which are needed by sen2r/sen2cor
+      # functionality to allow further processing
+      dir.create(file.path(outdir, names[i], "AUX_DATA"), showWarnings = F)
+      dir.create(file.path(outdir, names[i], "HTML"), showWarnings = F)
+      message(paste0("\n File ", names[i], " succesfully downloaded."))
+      if(create_cloudmask) createCloudMask(file.path(outdir, names[i]), overwrite = F)
+    }
+  }
+}
+
+```
+
+We then can use the same functionality already implemented in the MAPME package
+to caluclate the NDVI.
+
+```{r}
+
+files = list.files("download/bigquery", pattern = ".jp2|.tif", recursive = T, full.names = TRUE)
+rasterfiles = calcIndex(files,
+                        aoi = aoi, 
+                        epsg = "EPSG:32643", 
+                        dx = 20, 
+                        dy = 20, 
+                        dt = "P1M", 
+                        aggregation = "mean", 
+                        resampling = "bilinear", 
+                        tmpagg = FALSE,
+                        timeframe = "complete", 
+                        index = "NDVI", 
+                        label = "bigquery", 
+                        outdir = "download/bigquery", 
+                        threads = 2)
+
+```
+
+# AWS
+
+We can download surface reflectance values from AWS. These are available in the
+SAFE format as well as cloud optimized GTiffs. No authentication is necessary.
+The `rstac` package can be used to easily query a spatiotemporal extent of interest
+because AWS has implemented the STAC API. We can specifically select the bands we 
+want to download. Because right now, we are interested in the NDVI we will only
+download the required bands. However, when more than one index shall be calculated
+it is advisable to download all bands.
+
+```{r, message=F, warning=F}
+
+s = stac("https://earth-search.aws.element84.com/v0")
+q <- s %>% stac_search(collections = "sentinel-s2-l2a-cogs",
+                       bbox = as.numeric(bbox), # Geneva
+                       datetime = "2020-01-01/2020-01-31",
+                       limit = 500)
+q %>% post_request() -> items
+assets = c("B04","B08","SCL")
+assets_download(items, output_dir = "download/aws/", assets_name = assets)
+
+```
+
+We than can proceed to calculate the NDVI composite using the `gdalcubes` 
+package. We needed to write a custom format definition because the package 
+currently does not know how to interpret the COG version of the sentinel data.
+
+```{r}
+
+files = list.files("download/aws/", full.names = T)
+files = files[-grep("NDVI", files)]
+col = gdalcubes::create_image_collection(files, format = "s2_cog.json")
+
+aoi_proj = st_transform(aoi, 32643)
+bbox = st_bbox(aoi_proj)
+v = cube_view(srs = "EPSG:32643",  
+              dx = 20, 
+              dy = 20, 
+              dt = "P1M", 
+              aggregation = "mean", 
+              resampling = "bilinear",
+              extent = list(t0 = "2020-01-01", 
+                            t1 = "2020-01-31",
+                            left = bbox[1], 
+                            right = bbox[3],
+                            top = bbox[4],
+                            bottom = bbox[2]))
+
+S2.mask = image_mask("SCL", values=c(3,8,9)) # clouds and cloud shadows
+gdalcubes_options(threads = 4) 
+raster_cube(col, v, mask = S2.mask) %>%
+  select_bands(c("B04","B08","SCL")) %>%
+  apply_pixel("(B08-B04)/(B08+B04)", "NDVI") %>%
+  write_tif(dir = "download/aws/", prefix = "aws-NDVI-")
+
+```
+
+# getSpatialData
+
+We can use the package `getSpatialData` to retrieve data from Copernicus Hub.
+L1C data can directly downloaded while the Hub currently does not provide access
+to all L2A data. Also the package currently shows a bug within the the function
+to check the availability of L2A data which we can hack by adding a column called
+`download_available` to the results object and start downloading directly.
+
+```{r}
+
+set_archive("download/gsd")
+set_aoi(aoi)
+
+login_CopHub(username = "goergen")
+records <- get_records(time_range = c("2020-01-01", "2020-01-31"),
+                       products = c("Sentinel-2"))
+records2A <- records[records$level == "Level-2A" | records$level == "sr",]
+records2A$download_available<-T
+results = get_data(records2A, dir_out = "download/gsd/")
+
+```
+
+The data is downloaded into zip directories. `gdalcubes` is able to initiate
+an image collection without the need to unzip the files.
+
+```{r}
+
+files = list.files("download/gsd/Sentinel-2/", full.names = T)
+col = create_image_collection(files, format = "Sentinel2_L2A")
+
+S2.mask = image_mask("SCL", values=c(3,8,9)) # clouds and cloud shadows
+gdalcubes_options(threads = 4) 
+raster_cube(col, v, mask = S2.mask) %>%
+  select_bands(c("B04","B08","SCL")) %>%
+  apply_pixel("(B08-B04)/(B08+B04)", "NDVI") %>%
+  write_tif(dir = "download/gsd/", prefix = "gsd-NDVI-")
+
+```
+
+
+# openEO
+
+Using the GEE backend with openEO currently there is no straight-forward way
+for cloud removal based on the SCL layer because the backend has not implemented
+the necessary processes. We will therefor omit cloud removal.
+
+```{r}
+
+user = "group4"
+pwd = "test123"
+url =  "https://earthengine.openeo.org/"
+gee = connect(host = url,user = user,password = pwd,login_type = "basic")
+
+p = processes()
+collections = list_collections()
+s2 = collections$`COPERNICUS/S2_SR`
+# s2_proba = collections$`COPERNICUS/S2_CLOUD_PROBABILITY`
+# dims = dimensions(s2)
+bbox = st_bbox(aoi)
+
+# prepare data cubes
+data = p$load_collection(id = s2,
+                         spatial_extent = list(west=bbox[1],south=bbox[2],east=bbox[3],north=bbox[4]),
+                         temporal_extent = c("2020-01-01","2020-01-31"),
+                         bands = c("B4","B8"))
+
+# prepare cloud mask
+# proba = p$load_collection(id = s2_proba,
+#                           spatial_extent = list(west=bbox[1],south=bbox[2],east=bbox[3],north=bbox[4]),
+#                           temporal_extent = c("2020-01-01","2020-01-31"),
+#                           bands = "probability")
+# 
+# scaled = p$apply(proba, process = function(x, context){
+#   p$divide(x,150)
+# })
+# 
+# rounded = p$apply(scaled, process = function(x, context){
+#   p$round(x)
+# })
+# 
+# mask = p$apply(rounded, process = function(x, context){
+#   p$int(x)
+# })
+
+# calculate ndvi 
+spectral_reducer = p$reduce_dimension(data = data, 
+                                      dimension = "bands", 
+                                      reducer = function(data,context) {
+                                        B4 = data[1]
+                                        B8 = data[2]
+                                        p$normalized_difference(x = B8, y = B4)
+                                      })
+
+temporal_reducer = p$reduce_dimension(data = spectral_reducer , dimension = "t", function(data, context){
+  p$mean(data)
+})
+
+# prepare output
+
+formats = list_file_formats()
+final = p$save_result(data = temporal_reducer, format = formats$output$`GTIFF-ZIP`)
+validate_process(final)
+#graph = as(final,"Graph")
+#graph$validate()
+
+job_id =  create_job(graph=final, title="PAK NDVI Temp")
+start_job(job = job_id)
+# repeat while data is processed on backend
+jobs = list_jobs()
+jobs[names(jobs) == job_id$id]
+
+file = download_results(job = job_id, folder = "./download/openeo")
+file = file[[1]]
+unzip(file, exdir = "download/openeo/")
+file = list.files("download/openeo", pattern = ".tif", full.names = T)
+target = rast("download/aws/aws-NDVI-2020-01.tif")
+source = rast(file)
+out = project(source, target)
+writeRaster(out, "download/openeo/openeo-NDVI.tif", overwrite = T)
+
+```
+
+
+# Considerations
+
+Let's compare the results!
+
+```{r}
+
+ndvi_files = list.files("download/", pattern = "NDVI", recursive = T, full.names = T)
+ndvis = rast(ndvi_files)
+names(ndvis) = c("AWS", "BigQuery", "GSD", "MAPME", "openEO")
+plot(ndvis)
+
+```
+
+## Google Bucket
+
+- available data sets:
+    - S2 L1C
+    - (S2 L2A - but complex query)
+    - Landsat Archive Level 1
+- Pros:
+    - S2 on European Servers -> faster download
+- Cons:
+    - Landsat on US servers -> slower download
+    - needs a lot of software and authentication
+    - complex spatiotemporal queries (local csv or bigquery)
+    - BOA not available
+    - unclear licensing: GEE needs commercial license - what about the bucket
+    - using BigQuery means we will only be able to download from Google with the code
+
+## AWS
+
+- available data sets:
+  - S2 L1C
+  - S2 L2A
+  - S2 L2A COG
+  - L8 L1
+- Pros:
+    - no user authentication
+    - easy spatiotemporal queries via STAC
+    - using STAC means that we can use the code with any STAC endpoint and just have to change the URL
+    - availability of BOA for S2
+    - potentially no need to download with gdalcubes and server in US using COGs
+    - data can readily used commercially
+- Cons:
+    - server in US -> slower downloads
+
+## SentinelHub
+
+- available data sets:
+    - S1 GRD
+    - S2 L1C & L2A
+    - S3 L1B
+    - S5P
+    - DEM Mapzen & Copernicus
+    - MODIS BRDF
+    - L8 L1 & L2
+- Pros:
+    - servers in EU
+    - more data available compared to Google & AWS
+    - data can readily be used commercially
+- Cons:
+    - at least 30 euros per month depending on quota
+    - should work as a STAC catalog but currently only supports special syntax
+    - so we also will need to develop code that we can only use with sentinel hub
+
+## OpenEO
+
+- available data sets:
+    - depends on provider, with GEE many data sets
+- Pros:
+    - no need for download because data is processed on backend
+    - no real vendor lock-in for developed code
+    - can be used commercially based on selected membership
+- Cons:
+    - membership with processing quouta needs to be purchased
+    - quoutas are just in the process of determination
+    - not all functionality is always available
+
+## GetSpatialData
+
+- R package with support for:
+    - CopernicusHub
+    - USGS
+    - NASA Earth Data
+- data sets:
+    - 159 total among them:
+    - S1 
+    - S2 
+    - Landsat
+    - MODIS products (almost any)
+    - SRTM
+- Pros:
+    - already implemented API to get many different data sets
+- Cons:
+    - seems not to be maintained since November 2020, a lot of issues raised, pretty buggy
+    - package can only be used to download data, no cloud processing
+    - needs authentication based on which data to download
+    - unavailable BOA products need to be ordered
+
+
